@@ -60,3 +60,29 @@ As data volume increases to millions of rows, database read/write latency will i
    * *Solution:* Use highly tailored composite indexes rather than indexing every single column.
 2. **Massive Table Size:** Querying a massive, monolithic table becomes slow even with proper indexes. 
    * *Solution:* Implement **Table Partitioning**. We can partition the `notifications` table by date (e.g., creating a new partition every month). Older partitions can be queried less frequently or moved to cold storage, keeping the active dataset small and highly performant.
+
+---
+
+# Stage 3: Query Optimization & Indexing Strategy
+
+### Query Analysis
+**Original Query:**
+`SELECT * FROM notifications WHERE studentID = 1042 AND isRead = false ORDER BY createdAt DESC;`
+
+* **Is it accurate?** Yes, the logic is technically correct for fetching unread notifications for a specific student.
+* **Why is it slow?** Without proper indexing, the database must perform a **Full Table Scan** across all 5,000,000 rows to find matches. Furthermore, sorting the results via `ORDER BY createdAt DESC` requires an expensive in-memory sort (filesort) because the data is not pre-sorted on disk.
+* **Proposed Changes & Cost:** We need to add a **Composite Index** specifically on `(studentID, isRead, createdAt DESC)`. This allows the database engine to instantly locate the exact student's unread notifications and retrieve them already in the correct sorted order without an extra sorting step. The computational cost drops drastically from $O(N)$ (where N is total rows) to $O(\log N + K)$ (where K is the number of unread notifications for that student).
+
+### Evaluating the "Index Everything" Advice
+Adding indexes on every column is **highly ineffective and dangerous advice**. 
+* **Why not?** Every time a new notification is inserted (or updated), the database must not only write the row data but also recalculate and update *every single index*. In a write-heavy system like notifications, indexing every column will severely degrade write performance and consume a massive amount of unnecessary disk space (Index Bloat). Indexes should be strictly tailored to actual query access patterns.
+
+### Placement Notifications Query
+To find all distinct students who received a placement notification in the last 7 days:
+```sql
+SELECT DISTINCT studentID 
+FROM notifications 
+WHERE type = 'Placement' 
+  AND created_at >= NOW() - INTERVAL '7 days';
+
+
