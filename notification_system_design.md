@@ -85,4 +85,26 @@ FROM notifications
 WHERE type = 'Placement' 
   AND created_at >= NOW() - INTERVAL '7 days';
 
+```
 
+# Stage 4: Performance & Database Load Mitigation
+
+### The Problem
+Fetching notifications from a relational database on every single page load for 50,000+ students creates an unsustainable read-heavy workload, leading to DB connection exhaustion and high latency.
+
+### Proposed Solutions & Tradeoffs
+
+**1. Implement a Caching Layer (Redis)**
+Instead of querying the PostgreSQL database for the `unread_count` and recent notifications on every page load, we store this data in an in-memory datastore like Redis.
+* **How it improves performance:** Redis operates in RAM, returning data in sub-milliseconds and completely bypassing the main database. When a new notification is generated, we push it to both the DB and the Redis cache. When a user reads it, we update both.
+* **Tradeoffs:** Introduces architectural complexity. Cache invalidation is notoriously difficult; if the DB and Redis fall out of sync, users might see "ghost" notifications (cache staleness). It also increases infrastructure costs.
+
+**2. Shift from "Pull" to "Push" (SSE / WebSockets)**
+Relying on page loads is a "Pull" mechanism. We should utilize the Server-Sent Events (SSE) stream designed in Stage 1. 
+* **How it improves performance:** The frontend connects to the SSE stream once. The initial state is loaded, and subsequent updates are pushed dynamically by the server. The client stores the data in local state (e.g., React Context / Redux). Navigating between pages in a Single Page Application (SPA) will no longer trigger backend fetch requests.
+* **Tradeoffs:** Maintaining thousands of persistent, concurrent TCP connections requires robust server memory management and load balancers configured for long-lived connections.
+
+**3. Client-Side Caching (Local Storage / IndexedDB)**
+The frontend can cache the fetched notifications locally. On a new page load, the frontend immediately renders the local cache and only requests a "delta" (e.g., `GET /notifications?since=last_sync_timestamp`) in the background.
+* **How it improves performance:** Drastically reduces the payload size and DB query complexity, as the DB only searches for records created in the last few minutes/hours rather than all unread items.
+* **Tradeoffs:** Local storage has strict size limits (usually ~5MB). If the user clears their browser data or switches devices, the cache is lost and a full heavy fetch is required.
