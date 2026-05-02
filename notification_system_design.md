@@ -154,3 +154,23 @@ function push_worker(job):
         push_to_app(job.student_id, job.message)
     except PushAPIError:
         send_to_dead_letter_queue("push_notification_queue", job)
+
+```
+
+# Stage 6: Priority Inbox Implementation
+
+### Priority Ranking Logic
+To determine the "importance" of a notification, we utilize a weighted scoring algorithm that combines the notification type with its recency (timestamp). 
+
+**1. Weights assigned:**
+* **Placement:** 30 points
+* **Result:** 20 points
+* **Event:** 10 points
+
+**2. Recency Factor:** 
+The Unix timestamp (seconds) is added to the weight. Because timestamps are large numbers, this ensures that a very recent "Event" could potentially outrank an older "Placement" if the time gap is significant, though generally, higher-weight types stay on top.
+
+### Efficient Maintenance (Top 10)
+To maintain the top 10 unread notifications as new data streams in, a **Min-Heap (Priority Queue)** of fixed size 10 is used.
+* **Why?** Comparing a new notification against a sorted list takes $O(N)$ time. However, using a Min-Heap allows us to compare the new item against the "weakest" of the top 10 in $O(1)$ and update the list in $O(\log 10)$ time.
+* This ensures that no matter how many millions of notifications arrive, our "Priority Inbox" remains lightning-fast.
